@@ -113,6 +113,7 @@ dependencies = [
     dependency('libavutil'),
     dependency('libswresample'),
     dependency('sdl2', version: '>= 2.0.5'),
+    dependency('opencv4', required: get_option('opencv')),
 ]
 
 if v4l2_support
@@ -174,6 +175,13 @@ conf.set('HAVE_V4L2', v4l2_support)
 # enable HID over AOA support (linux only)
 conf.set('HAVE_USB', usb_support)
 
+# Add OpenCV configuration
+if get_option('opencv')
+    # Add C++ compiler since OpenCV requires it
+    add_languages('cpp', required: true)
+    conf.set('HAVE_OPENCV', true)
+endif
+
 configure_file(configuration: conf, output: 'config.h')
 
 src_dir = include_directories('src')
@@ -182,7 +190,9 @@ executable('scrcpy', src,
            dependencies: dependencies,
            include_directories: src_dir,
            install: true,
-           c_args: [])
+           c_args: [],
+           cpp_args: [],
+           override_options: ['cpp_std=c++11'])
 
 # <https://mesonbuild.com/Builtin-options.html#directories>
 datadir = get_option('datadir') # by default 'share'

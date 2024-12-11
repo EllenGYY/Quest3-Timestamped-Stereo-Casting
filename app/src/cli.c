@@ -102,6 +102,7 @@ enum {
     OPT_NO_MOUSE_HOVER,
     OPT_AUDIO_DUP,
     OPT_GAMEPAD,
+    OPT_OPENCV,
 };
 
 struct sc_option {
@@ -945,6 +946,12 @@ static const struct sc_option options[] = {
         .argdesc = "value",
         .text = "Set the initial window height.\n"
                 "Default is 0 (automatic).",
+    },
+    {
+        .longopt_id = OPT_OPENCV,
+        .longopt = "opencv",
+        .argdesc = "path/to/maps.npz",
+        .text = "Enable OpenCV processing with the given map file.",
     },
 };
 
@@ -2663,6 +2670,8 @@ parse_args_with_getopt(struct scrcpy_cli_args *args, int argc, char *argv[],
                 if (!parse_gamepad(optarg, &opts->gamepad_input_mode)) {
                     return false;
                 }
+                break;
+            case OPT_OPENCV:
                 break;
             default:
                 // getopt prints the error message on stderr

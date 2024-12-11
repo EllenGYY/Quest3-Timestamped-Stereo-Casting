@@ -375,6 +375,7 @@ sc_recorder_process_packets(struct sc_recorder *recorder) {
                 // We need both video and audio packets to initialize pts_origin
                 continue;
             }
+            LOGI("RECORDING_START_PTS=%" PRId64, pts_origin);
         }
 
         assert(pts_origin != AV_NOPTS_VALUE);

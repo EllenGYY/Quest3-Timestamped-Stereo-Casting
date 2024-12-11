@@ -814,6 +814,7 @@ aoa_complete:
 
         if (options->video_playback) {
             struct sc_frame_source *src = &s->video_decoder.frame_source;
+
             if (options->display_buffer) {
                 sc_delay_buffer_init(&s->display_buffer,
                                      options->display_buffer, true);
