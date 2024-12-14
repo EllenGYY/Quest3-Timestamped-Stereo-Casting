@@ -100,7 +100,7 @@ sc_orientation_is_swap(enum sc_orientation orientation) {
 static inline enum sc_orientation
 sc_orientation_get_rotation(enum sc_orientation orientation) {
     assert(!(orientation & ~7));
-    return orientation & 3;
+    return (enum sc_orientation)(orientation & 3);
 }
 
 enum sc_orientation
@@ -310,6 +310,8 @@ struct scrcpy_options {
     bool window;
     bool mouse_hover;
     bool audio_dup;
+    const char *frame_dir;     // Directory to save frames
+    bool save_frames;          // Whether to save frames
 };
 
 extern const struct scrcpy_options scrcpy_options_default;

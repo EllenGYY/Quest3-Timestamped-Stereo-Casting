@@ -365,6 +365,8 @@ init_sdl_gamepads(void) {
     }
 }
 
+
+
 enum scrcpy_exit_code
 scrcpy(struct scrcpy_options *options) {
     static struct scrcpy scrcpy;
@@ -805,6 +807,8 @@ aoa_complete:
             .mipmaps = options->mipmaps,
             .fullscreen = options->fullscreen,
             .start_fps_counter = options->start_fps_counter,
+            .save_frames = options->save_frames,
+            .frame_dir = options->frame_dir,
         };
 
         if (!sc_screen_init(&s->screen, &screen_params)) {

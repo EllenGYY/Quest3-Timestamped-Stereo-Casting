@@ -1,17 +1,35 @@
 #include "screen.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <assert.h>
 #include <string.h>
 #include <SDL2/SDL.h>
+#include <sys/stat.h>
+#include <errno.h>
+
+#include "video_preprocess.h"
 
 #include "events.h"
 #include "icon.h"
 #include "options.h"
 #include "util/log.h"
 
+#ifdef __cplusplus 
+}
+#endif
+#include <libavutil/imgutils.h>
+#include <libswscale/swscale.h>
+
 #define DISPLAY_MARGINS 96
 
 #define DOWNCAST(SINK) container_of(SINK, struct sc_screen, frame_sink)
+
+// Forward declaration of save_frame_as_image function
+static void
+save_frame_as_image(const AVFrame *frame, const char *directory, uint64_t frame_number);
 
 static inline struct sc_size
 get_oriented_size(struct sc_size size, enum sc_orientation orientation) {
@@ -509,6 +527,22 @@ sc_screen_init(struct sc_screen *screen,
         sc_screen_set_mouse_capture(screen, true);
     }
 
+    screen->frame_count = 0;
+    screen->save_frames = params->save_frames;
+    screen->frame_dir = params->frame_dir;
+    LOGI("Saving frames: %d, Frame directory: %s", screen->save_frames, screen->frame_dir);
+    // Create directory if it doesn't exist and saving is enabled
+    if (screen->save_frames && screen->frame_dir) {
+#ifdef _WIN32
+        if (mkdir(screen->frame_dir) < 0 && errno != EEXIST) {
+#else
+        if (mkdir(screen->frame_dir, 0777) < 0 && errno != EEXIST) {
+#endif
+            LOGE("Could not create frame directory: %s", screen->frame_dir);
+            return false;
+        }
+    }
+
     return true;
 
 error_destroy_display:
@@ -687,6 +721,7 @@ sc_screen_apply_frame(struct sc_screen *screen) {
     sc_fps_counter_add_rendered_frame(&screen->fps_counter);
 
     AVFrame *frame = screen->frame;
+
     struct sc_size new_frame_size = {frame->width, frame->height};
     enum sc_display_result res = prepare_for_frame(screen, new_frame_size);
     if (res == SC_DISPLAY_RESULT_ERROR) {
@@ -736,11 +771,23 @@ sc_screen_update_frame(struct sc_screen *screen) {
             av_frame_unref(screen->resume_frame);
         }
         sc_frame_buffer_consume(&screen->fb, screen->resume_frame);
+
+        // Save frame if enabled
+        if (screen->save_frames && screen->frame_dir) {
+            save_frame_as_image(screen->resume_frame, screen->frame_dir, screen->frame_count++);
+        }
+
         return true;
     }
 
     av_frame_unref(screen->frame);
     sc_frame_buffer_consume(&screen->fb, screen->frame);
+
+    // Save frame if enabled
+    if (screen->save_frames && screen->frame_dir) {
+        save_frame_as_image(screen->frame, screen->frame_dir, screen->frame_count++);
+    }
+
     return sc_screen_apply_frame(screen);
 }
 
@@ -1045,4 +1092,55 @@ sc_screen_hidpi_scale_coords(struct sc_screen *screen, int32_t *x, int32_t *y) {
     // scale for HiDPI (64 bits for intermediate multiplications)
     *x = (int64_t) *x * dw / ww;
     *y = (int64_t) *y * dh / wh;
+}
+
+// Add this function to save frames
+static void
+save_frame_as_image(const AVFrame *frame, const char *directory, uint64_t frame_number) {
+    char filename[256];
+    snprintf(filename, sizeof(filename), "%s/frame_%06" PRIu64 ".ppm", 
+             directory, frame_number);
+
+    FILE *fp = fopen(filename, "wb");
+    if (!fp) {
+        LOGE("Could not open file for frame saving: %s", filename);
+        return;
+    }
+
+    // Convert from YUV420P to RGB24
+    int rgb_linesize[1] = { 3 * frame->width }; // RGB stride
+    uint8_t *rgb_data[1] = { NULL };            // RGB data buffer
+    rgb_data[0] = malloc(rgb_linesize[0] * frame->height);
+    if (!rgb_data[0]) {
+        LOGE("Could not allocate RGB buffer");
+        fclose(fp);
+        return;
+    }
+
+    struct SwsContext *sws_ctx = sws_getContext(
+        frame->width, frame->height, AV_PIX_FMT_YUV420P,
+        frame->width, frame->height, AV_PIX_FMT_RGB24,
+        SWS_BICUBIC, NULL, NULL, NULL);
+
+    if (!sws_ctx) {
+        LOGE("Could not initialize SwsContext");
+        free(rgb_data[0]);
+        fclose(fp);
+        return;
+    }
+
+    sws_scale(sws_ctx, (const uint8_t * const *)frame->data, 
+              frame->linesize, 0, frame->height,
+              rgb_data, rgb_linesize);
+
+    // Write PPM header
+    fprintf(fp, "P6\n%d %d\n255\n", frame->width, frame->height);
+    
+    // Write RGB data
+    fwrite(rgb_data[0], 1, rgb_linesize[0] * frame->height, fp);
+
+    // Cleanup
+    sws_freeContext(sws_ctx);
+    free(rgb_data[0]);
+    fclose(fp);
 }

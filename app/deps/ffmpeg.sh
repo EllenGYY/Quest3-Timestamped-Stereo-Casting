@@ -59,7 +59,7 @@ else
         --disable-static \
         --disable-programs \
         --disable-doc \
-        --disable-swscale \
+        --enable-swscale \
         --disable-postproc \
         --disable-avfilter \
         --disable-avdevice \

@@ -5,6 +5,7 @@
 
 #include <stdbool.h>
 #include <libavformat/avformat.h>
+#include <libavcodec/avcodec.h>
 
 #include "coords.h"
 #include "options.h"
@@ -59,6 +60,10 @@ struct sc_recorder {
 
     const struct sc_recorder_callbacks *cbs;
     void *cbs_userdata;
+
+    // For video effects processing
+    AVCodecContext *decoder_ctx;
+    AVCodecContext *encoder_ctx;
 };
 
 struct sc_recorder_callbacks {

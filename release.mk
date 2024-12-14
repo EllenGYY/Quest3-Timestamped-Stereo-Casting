@@ -60,6 +60,7 @@ build-win64: prepare-deps-win64
 		--buildtype=release --strip -Db_lto=true \
 		-Dprebuilt_server=scrcpy-server-v2.7 \
 		-Dportable=true
+		-Dopencv=true
 	ninja -C "$(WIN64_BUILD_DIR)"
 
 dist-win64: build-win64

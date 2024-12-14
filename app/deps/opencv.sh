@@ -5,62 +5,91 @@ cd "$DEPS_DIR"
 . common
 
 VERSION=4.8.0
-FILENAME=opencv-$VERSION-windows.exe
-SHA256SUM=1c8b1b78a51c46852eb5569d762bd11d0097a45c3db1f03eb41aba6f727b8942
-cd "$SOURCES_DIR"
+OPENCV_DIR="opencv-$VERSION"
 
-# Check if OpenCV DLLs are already installed
-if [ -f "$INSTALL_DIR/$HOST/bin/opencv_world480.dll" ]; then
-    echo "OpenCV DLLs already installed, skipping extraction"
+# Check if OpenCV is already installed
+if [ -f "$INSTALL_DIR/$HOST/lib/libopencv_world480.a" ]; then
+    echo "OpenCV $VERSION is already installed"
+    ls -l "$INSTALL_DIR/$HOST/lib"/libopencv_*.a "$INSTALL_DIR/$HOST/bin"/*.dll || true
     exit 0
 fi
 
-if [[ ! -f "$FILENAME" ]]; then
-    # Download pre-built Windows binaries
-    wget -O "$FILENAME" "https://github.com/opencv/opencv/releases/download/$VERSION/opencv-$VERSION-windows.exe"
-    echo "$SHA256SUM $FILENAME" | sha256sum -c
+cd "$SOURCES_DIR"
+
+# Clone OpenCV if not already present
+if [ ! -d "$OPENCV_DIR" ]; then
+    git clone --depth 1 --branch $VERSION https://github.com/opencv/opencv.git "$OPENCV_DIR"
 fi
 
-# Create a temporary directory for extraction
-TEMP_DIR="opencv_extract"
-mkdir -p "$TEMP_DIR"
+cd "$OPENCV_DIR"
 
-# Extract the self-extracting exe using 7z
-7z x "$FILENAME" -o"$TEMP_DIR"
+# Create toolchain file
+cat > mingw64_toolchain.cmake << EOF
+set(CMAKE_SYSTEM_NAME Windows)
+set(CMAKE_SYSTEM_PROCESSOR x86_64)
 
-# Debug: Print directory structure
-echo "Directory structure:"
-find "$TEMP_DIR" -type f -name "*.dll" -o -name "*.dll.a"
+set(CMAKE_C_COMPILER x86_64-w64-mingw32-gcc)
+set(CMAKE_CXX_COMPILER x86_64-w64-mingw32-g++)
+set(CMAKE_RC_COMPILER x86_64-w64-mingw32-windres)
 
-# Create necessary directories
-mkdir -p "$INSTALL_DIR/$HOST/lib"
-mkdir -p "$INSTALL_DIR/$HOST/include"
+set(CMAKE_FIND_ROOT_PATH /usr/x86_64-w64-mingw32)
+
+set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
+set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
+set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
+EOF
+
+# Create and enter build directory
+mkdir -p build
+cd build
+
+# Configure with CMake for MinGW cross-compilation
+cmake -DCMAKE_INSTALL_PREFIX="$INSTALL_DIR/$HOST" \
+      -DCMAKE_TOOLCHAIN_FILE=../mingw64_toolchain.cmake \
+      -DCMAKE_BUILD_TYPE=Release \
+      -DBUILD_SHARED_LIBS=OFF \
+      -DBUILD_WITH_STATIC_CRT=ON \
+      -DBUILD_EXAMPLES=OFF \
+      -DBUILD_TESTS=OFF \
+      -DBUILD_PERF_TESTS=OFF \
+      -DBUILD_opencv_apps=OFF \
+      -DBUILD_opencv_python2=OFF \
+      -DBUILD_opencv_python3=OFF \
+      -DWITH_CUDA=OFF \
+      -DENABLE_PRECOMPILED_HEADERS=OFF \
+      -DWITH_IPP=OFF \
+      -DWITH_OPENCL=OFF \
+      -DBUILD_opencv_world=ON \
+      -DCMAKE_CXX_FLAGS="-static-libgcc -static-libstdc++ -static" \
+      -DCMAKE_EXE_LINKER_FLAGS="-static" \
+      ..
+
+# Build using all available cores
+make -j$(nproc)
+
+# Install to the specified prefix
+make install
+
+# Create bin directory if it doesn't exist
 mkdir -p "$INSTALL_DIR/$HOST/bin"
 
-# Copy the required files based on actual structure
-cp -r "$TEMP_DIR"/opencv/build/include/* "$INSTALL_DIR/$HOST/include/"
-
-# We'll update these paths based on the actual structure
-find "$TEMP_DIR" -name "*.dll" -exec cp {} "$INSTALL_DIR/$HOST/bin/" \;
-
-# Clean up
-rm -rf "$TEMP_DIR"
-
-# Create pkg-config directory if it doesn't exist
+# Create pkg-config file
 mkdir -p "$INSTALL_DIR/$HOST/lib/pkgconfig"
-
-# Create pkg-config file for the OpenCV world library
 cat > "$INSTALL_DIR/$HOST/lib/pkgconfig/opencv4.pc" << EOF
 prefix=$INSTALL_DIR/$HOST
 exec_prefix=\${prefix}
 libdir=\${prefix}/lib
-includedir=\${prefix}/include
+includedir=\${prefix}/include/opencv2
+bindir=\${prefix}/bin
 
 Name: opencv4
 Description: Open Source Computer Vision Library
 Version: $VERSION
-Libs: -L\${prefix}/bin -lopencv_world480
+Libs: -L\${libdir} -lopencv_world480
 Cflags: -I\${includedir}
 EOF
 
-ls -l "$INSTALL_DIR/$HOST/bin"/opencv_*.dll || true
+echo "OpenCV $VERSION has been successfully built and installed"
+
+# Move opencv2 headers from nested location to direct include path
+mv "$INSTALL_DIR/$HOST/include/opencv4/opencv2" "$INSTALL_DIR/$HOST/include/" && rm -r "$INSTALL_DIR/$HOST/include/opencv4"

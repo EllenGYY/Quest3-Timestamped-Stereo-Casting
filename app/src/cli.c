@@ -103,6 +103,8 @@ enum {
     OPT_AUDIO_DUP,
     OPT_GAMEPAD,
     OPT_OPENCV,
+    OPT_SAVE_FRAMES,
+    OPT_FRAME_DIR,
 };
 
 struct sc_option {
@@ -952,6 +954,17 @@ static const struct sc_option options[] = {
         .longopt = "opencv",
         .argdesc = "path/to/maps.npz",
         .text = "Enable OpenCV processing with the given map file.",
+    },
+    {
+        .longopt_id = OPT_SAVE_FRAMES,
+        .longopt = "save-frames",
+        .text = "Save video frames as images",
+    },
+    {
+        .longopt_id = OPT_FRAME_DIR,
+        .longopt = "frame-dir",
+        .argdesc = "DIR",
+        .text = "Directory to save video frames",
     },
 };
 
@@ -2672,6 +2685,12 @@ parse_args_with_getopt(struct scrcpy_cli_args *args, int argc, char *argv[],
                 }
                 break;
             case OPT_OPENCV:
+                break;
+            case OPT_SAVE_FRAMES:
+                opts->save_frames = true;
+                break;
+            case OPT_FRAME_DIR:
+                opts->frame_dir = optarg;
                 break;
             default:
                 // getopt prints the error message on stderr

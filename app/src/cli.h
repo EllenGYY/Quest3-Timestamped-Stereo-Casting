@@ -18,6 +18,8 @@ struct scrcpy_cli_args {
     bool help;
     bool version;
     enum sc_pause_on_exit pause_on_exit;
+    bool save_frames;
+    const char *frame_dir;
 };
 
 void

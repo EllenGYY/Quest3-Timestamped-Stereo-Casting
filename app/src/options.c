@@ -103,6 +103,8 @@ const struct scrcpy_options scrcpy_options_default = {
     .window = true,
     .mouse_hover = true,
     .audio_dup = false,
+    .save_frames = false,
+    .frame_dir = NULL,
 };
 
 enum sc_orientation

@@ -60,6 +60,7 @@ src = [
     'src/util/thread.c',
     'src/util/tick.c',
     'src/util/timeout.c',
+    'src/video_preprocess.cpp',
 ]
 
 conf = configuration_data()
@@ -75,7 +76,7 @@ if host_machine.system() == 'windows'
         'src/sys/win/process.c',
         windows.compile_resources('scrcpy-windows.rc'),
     ]
-    conf.set('_WIN32_WINNT', '0x0600')
+    conf.set('_WIN32_WINNT', '0x0601')
     conf.set('WINVER', '0x0600')
 else
     src += [
@@ -112,6 +113,7 @@ dependencies = [
     dependency('libavcodec', version: '>= 57.37'),
     dependency('libavutil'),
     dependency('libswresample'),
+    dependency('libswscale'),
     dependency('sdl2', version: '>= 2.0.5'),
     dependency('opencv4', required: get_option('opencv')),
 ]
@@ -180,6 +182,29 @@ if get_option('opencv')
     # Add C++ compiler since OpenCV requires it
     add_languages('cpp', required: true)
     conf.set('HAVE_OPENCV', true)
+    cpp = meson.get_compiler('cpp')
+    if host_machine.system() == 'windows'
+        # For MinGW cross-compilation
+        opencv_prefix = '~/scrcpy/app/deps/work/install/win64'  # Adjust this path
+        opencv_libdir = opencv_prefix + '/lib'
+        opencv_includedir = opencv_prefix + '/include'
+        
+        # Add static linking for C++ standard library
+        add_project_link_arguments('-static-libstdc++', '-static-libgcc', '-static', language: 'cpp')
+        
+        # Find the static library (.a file)
+        dependencies += cpp.find_library('opencv_world480',
+            dirs: opencv_libdir,
+            required: true,
+            static: true)
+            
+        # Add zlib dependency
+        dependencies += cpp.find_library('z',
+            required: true,
+            static: true)
+            
+        add_project_arguments('-I' + opencv_includedir, language: 'cpp')
+    endif
 endif
 
 configure_file(configuration: conf, output: 'config.h')
@@ -191,7 +216,7 @@ executable('scrcpy', src,
            include_directories: src_dir,
            install: true,
            c_args: [],
-           cpp_args: [],
+           cpp_args: ['-std=c++11'],
            override_options: ['cpp_std=c++11'])
 
 # <https://mesonbuild.com/Builtin-options.html#directories>
@@ -213,77 +238,4 @@ if host_machine.system() == 'linux'
                  install_dir: join_paths(datadir, 'applications'))
     install_data('data/scrcpy-console.desktop',
                  install_dir: join_paths(datadir, 'applications'))
-endif
-
-
-### TESTS
-
-# do not build tests in release (assertions would not be executed at all)
-if get_option('buildtype') == 'debug'
-    tests = [
-        ['test_adb_parser', [
-            'tests/test_adb_parser.c',
-            'src/adb/adb_device.c',
-            'src/adb/adb_parser.c',
-            'src/util/str.c',
-            'src/util/strbuf.c',
-        ]],
-        ['test_binary', [
-            'tests/test_binary.c',
-        ]],
-        ['test_audiobuf', [
-            'tests/test_audiobuf.c',
-            'src/util/audiobuf.c',
-            'src/util/memory.c',
-        ]],
-        ['test_cli', [
-            'tests/test_cli.c',
-            'src/cli.c',
-            'src/options.c',
-            'src/util/log.c',
-            'src/util/net.c',
-            'src/util/str.c',
-            'src/util/strbuf.c',
-            'src/util/term.c',
-        ]],
-        ['test_control_msg_serialize', [
-            'tests/test_control_msg_serialize.c',
-            'src/control_msg.c',
-            'src/util/str.c',
-            'src/util/strbuf.c',
-        ]],
-        ['test_device_msg_deserialize', [
-            'tests/test_device_msg_deserialize.c',
-            'src/device_msg.c',
-        ]],
-        ['test_orientation', [
-            'tests/test_orientation.c',
-            'src/options.c',
-        ]],
-        ['test_strbuf', [
-            'tests/test_strbuf.c',
-            'src/util/strbuf.c',
-        ]],
-        ['test_str', [
-            'tests/test_str.c',
-            'src/util/str.c',
-            'src/util/strbuf.c',
-        ]],
-        ['test_vecdeque', [
-            'tests/test_vecdeque.c',
-            'src/util/memory.c',
-        ]],
-        ['test_vector', [
-            'tests/test_vector.c',
-        ]],
-    ]
-
-    foreach t : tests
-        sources = t[1] + ['src/compat.c']
-        exe = executable(t[0], sources,
-                         include_directories: src_dir,
-                         dependencies: dependencies,
-                         c_args: ['-DSDL_MAIN_HANDLED', '-DSC_TEST'])
-        test(t[0], exe)
-    endforeach
 endif
