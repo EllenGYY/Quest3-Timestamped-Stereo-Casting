@@ -105,6 +105,8 @@ const struct scrcpy_options scrcpy_options_default = {
     .audio_dup = false,
     .save_frames = false,
     .frame_dir = NULL,
+    .opencv_enabled = false,
+    .opencv_map_path = NULL,
 };
 
 enum sc_orientation

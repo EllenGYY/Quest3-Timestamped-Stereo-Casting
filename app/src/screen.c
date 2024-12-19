@@ -29,7 +29,7 @@ extern "C" {
 
 // Forward declaration of save_frame_as_image function
 static void
-save_frame_as_image(const AVFrame *frame, const char *directory, uint64_t frame_number);
+save_frame_as_image(const AVFrame *frame, const char *directory, const char *map_path, uint64_t frame_number);
 
 static inline struct sc_size
 get_oriented_size(struct sc_size size, enum sc_orientation orientation) {
@@ -530,7 +530,9 @@ sc_screen_init(struct sc_screen *screen,
     screen->frame_count = 0;
     screen->save_frames = params->save_frames;
     screen->frame_dir = params->frame_dir;
-    LOGI("Saving frames: %d, Frame directory: %s", screen->save_frames, screen->frame_dir);
+    screen->opencv_enabled = params->opencv_enabled;
+    screen->opencv_map_path = params->opencv_map_path;
+    // LOGI("Saving frames: %d, Frame directory: %s", screen->save_frames, screen->frame_dir);
     // Create directory if it doesn't exist and saving is enabled
     if (screen->save_frames && screen->frame_dir) {
 #ifdef _WIN32
@@ -773,8 +775,9 @@ sc_screen_update_frame(struct sc_screen *screen) {
         sc_frame_buffer_consume(&screen->fb, screen->resume_frame);
 
         // Save frame if enabled
-        if (screen->save_frames && screen->frame_dir) {
-            save_frame_as_image(screen->resume_frame, screen->frame_dir, screen->frame_count++);
+        if (screen->save_frames && screen->frame_dir && screen->opencv_enabled && screen->opencv_map_path) {
+            save_frame_as_image(screen->resume_frame, screen->frame_dir, 
+            screen->opencv_map_path, screen->frame_count++);
         }
 
         return true;
@@ -784,8 +787,9 @@ sc_screen_update_frame(struct sc_screen *screen) {
     sc_frame_buffer_consume(&screen->fb, screen->frame);
 
     // Save frame if enabled
-    if (screen->save_frames && screen->frame_dir) {
-        save_frame_as_image(screen->frame, screen->frame_dir, screen->frame_count++);
+    if (screen->save_frames && screen->frame_dir && screen->opencv_enabled && screen->opencv_map_path){
+        save_frame_as_image(screen->frame, screen->frame_dir, 
+            screen->opencv_map_path, screen->frame_count++);
     }
 
     return sc_screen_apply_frame(screen);
@@ -1096,7 +1100,7 @@ sc_screen_hidpi_scale_coords(struct sc_screen *screen, int32_t *x, int32_t *y) {
 
 // Add this function to save frames
 static void
-save_frame_as_image(const AVFrame *frame, const char *directory, uint64_t frame_number) {
+save_frame_as_image(const AVFrame *frame, const char *directory, const char *map_path, uint64_t frame_number) {
     char filename[256];
     snprintf(filename, sizeof(filename), "%s/frame_%06" PRIu64 ".ppm", 
              directory, frame_number);
@@ -1107,40 +1111,67 @@ save_frame_as_image(const AVFrame *frame, const char *directory, uint64_t frame_
         return;
     }
 
+    // Create a copy of the frame for processing
+    AVFrame *processed = av_frame_alloc();
+    if (!processed) {
+        LOGE("Could not allocate processed frame");
+        fclose(fp);
+        return;
+    }
+    
+    // Copy the frame data
+    av_frame_copy_props(processed, frame);
+    processed->format = frame->format;
+    processed->width = frame->width;
+    processed->height = frame->height;
+    if (av_frame_get_buffer(processed, 0) < 0) {
+        LOGE("Could not allocate frame data");
+        av_frame_free(&processed);
+        fclose(fp);
+        return;
+    }
+    av_frame_copy(processed, frame);
+
+    // Apply video effects in-place
+    apply_video_effects(processed, map_path);
+
     // Convert from YUV420P to RGB24
-    int rgb_linesize[1] = { 3 * frame->width }; // RGB stride
-    uint8_t *rgb_data[1] = { NULL };            // RGB data buffer
-    rgb_data[0] = malloc(rgb_linesize[0] * frame->height);
+    int rgb_linesize[1] = { 3 * processed->width }; // RGB stride
+    uint8_t *rgb_data[1] = { NULL };               // RGB data buffer
+    rgb_data[0] = malloc(rgb_linesize[0] * processed->height);
     if (!rgb_data[0]) {
         LOGE("Could not allocate RGB buffer");
+        av_frame_free(&processed);
         fclose(fp);
         return;
     }
 
     struct SwsContext *sws_ctx = sws_getContext(
-        frame->width, frame->height, AV_PIX_FMT_YUV420P,
-        frame->width, frame->height, AV_PIX_FMT_RGB24,
+        processed->width, processed->height, AV_PIX_FMT_YUV420P,
+        processed->width, processed->height, AV_PIX_FMT_RGB24,
         SWS_BICUBIC, NULL, NULL, NULL);
 
     if (!sws_ctx) {
         LOGE("Could not initialize SwsContext");
         free(rgb_data[0]);
+        av_frame_free(&processed);
         fclose(fp);
         return;
     }
 
-    sws_scale(sws_ctx, (const uint8_t * const *)frame->data, 
-              frame->linesize, 0, frame->height,
+    sws_scale(sws_ctx, (const uint8_t * const *)processed->data, 
+              processed->linesize, 0, processed->height,
               rgb_data, rgb_linesize);
 
     // Write PPM header
-    fprintf(fp, "P6\n%d %d\n255\n", frame->width, frame->height);
+    fprintf(fp, "P6\n%d %d\n255\n", processed->width, processed->height);
     
     // Write RGB data
-    fwrite(rgb_data[0], 1, rgb_linesize[0] * frame->height, fp);
+    fwrite(rgb_data[0], 1, rgb_linesize[0] * processed->height, fp);
 
     // Cleanup
     sws_freeContext(sws_ctx);
     free(rgb_data[0]);
+    av_frame_free(&processed);
     fclose(fp);
 }

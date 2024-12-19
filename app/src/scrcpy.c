@@ -44,6 +44,9 @@
 # include "v4l2_sink.h"
 #endif
 
+// Global options accessible by all components
+struct scrcpy_options options;
+
 struct scrcpy {
     struct sc_server server;
     struct sc_screen screen;
@@ -809,6 +812,8 @@ aoa_complete:
             .start_fps_counter = options->start_fps_counter,
             .save_frames = options->save_frames,
             .frame_dir = options->frame_dir,
+            .opencv_enabled = options->opencv_enabled,
+            .opencv_map_path = options->opencv_map_path,
         };
 
         if (!sc_screen_init(&s->screen, &screen_params)) {

@@ -105,6 +105,7 @@ enum {
     OPT_OPENCV,
     OPT_SAVE_FRAMES,
     OPT_FRAME_DIR,
+    OPT_OPENCV_MAP,
 };
 
 struct sc_option {
@@ -952,8 +953,7 @@ static const struct sc_option options[] = {
     {
         .longopt_id = OPT_OPENCV,
         .longopt = "opencv",
-        .argdesc = "path/to/maps.npz",
-        .text = "Enable OpenCV processing with the given map file.",
+        .text = "Enable OpenCV processing.",
     },
     {
         .longopt_id = OPT_SAVE_FRAMES,
@@ -965,6 +965,12 @@ static const struct sc_option options[] = {
         .longopt = "frame-dir",
         .argdesc = "DIR",
         .text = "Directory to save video frames",
+    },
+    {
+        .longopt_id = OPT_OPENCV_MAP,
+        .longopt = "opencv-map",
+        .argdesc = "path",
+        .text = "Path to the NPZ file containing stereo rectification maps",
     },
 };
 
@@ -2684,13 +2690,17 @@ parse_args_with_getopt(struct scrcpy_cli_args *args, int argc, char *argv[],
                     return false;
                 }
                 break;
-            case OPT_OPENCV:
-                break;
             case OPT_SAVE_FRAMES:
                 opts->save_frames = true;
                 break;
             case OPT_FRAME_DIR:
                 opts->frame_dir = optarg;
+                break;
+            case OPT_OPENCV:
+                opts->opencv_enabled = true;
+                break;
+            case OPT_OPENCV_MAP:
+                opts->opencv_map_path = optarg;
                 break;
             default:
                 // getopt prints the error message on stderr

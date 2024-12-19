@@ -8,7 +8,7 @@ extern "C" {
 #include <libavcodec/avcodec.h>
 
 // Function to apply video effects to a frame
-void apply_video_effects(AVFrame *frame);
+void apply_video_effects(AVFrame *frame, const char *map_path);
 
 #ifdef __cplusplus
 }

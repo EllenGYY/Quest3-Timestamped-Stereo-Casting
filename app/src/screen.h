@@ -74,6 +74,8 @@ struct sc_screen {
     uint64_t frame_count;
     bool save_frames;
     const char *frame_dir;
+    bool opencv_enabled;
+    const char *opencv_map_path;
 };
 
 struct sc_screen_params {
@@ -107,6 +109,8 @@ struct sc_screen_params {
     bool start_fps_counter;
     bool save_frames;
     const char *frame_dir;
+    bool opencv_enabled;
+    const char *opencv_map_path;
 };
 
 // initialize screen, create window, renderer and texture (window is hidden)
