@@ -61,6 +61,7 @@ src = [
     'src/util/tick.c',
     'src/util/timeout.c',
     'src/video_preprocess.cpp',
+    'src/device_time.cpp'
 ]
 
 conf = configuration_data()

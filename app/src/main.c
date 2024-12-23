@@ -107,6 +107,7 @@ end:
 
 int
 main(int argc, char *argv[]) {
+
 #ifndef _WIN32
     return main_scrcpy(argc, argv);
 #else
@@ -152,4 +153,5 @@ main(int argc, char *argv[]) {
 
     return ret;
 #endif
+
 }

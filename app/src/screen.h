@@ -66,6 +66,7 @@ struct sc_screen {
     SDL_Keycode mouse_capture_key_pressed;
 
     AVFrame *frame;
+    AVFrame *processed_frame;
 
     bool paused;
     AVFrame *resume_frame;
@@ -76,6 +77,10 @@ struct sc_screen {
     const char *frame_dir;
     bool opencv_enabled;
     const char *opencv_map_path;
+
+    int64_t device_boot_time;  // Device boot time in milliseconds
+    bool pipe_output;
+    bool show_timestamps;
 };
 
 struct sc_screen_params {
@@ -111,6 +116,11 @@ struct sc_screen_params {
     const char *frame_dir;
     bool opencv_enabled;
     const char *opencv_map_path;
+    int64_t device_boot_time;  // Device boot time in milliseconds
+    const char *serial;
+    bool pipe_output;
+    bool show_timestamps;
+    const char *adb_path;
 };
 
 // initialize screen, create window, renderer and texture (window is hidden)

@@ -312,6 +312,9 @@ struct scrcpy_options {
     bool audio_dup;
     const char *frame_dir;     // Directory to save frames
     bool save_frames;          // Whether to save frames
+    bool pipe_output;          // Whether to pipe output to a pipe
+    bool show_timestamps;      // Whether to render timestamps on screen
+    const char *adb_path;      // Path to adb executable
 };
 
 extern const struct scrcpy_options scrcpy_options_default;

@@ -61,6 +61,7 @@ build-win64: prepare-deps-win64
 		-Dprebuilt_server=scrcpy-server-v2.7 \
 		-Dportable=true
 		-Dopencv=true
+		-Dagora=false
 	ninja -C "$(WIN64_BUILD_DIR)"
 
 dist-win64: build-win64

@@ -107,6 +107,7 @@ const struct scrcpy_options scrcpy_options_default = {
     .frame_dir = NULL,
     .opencv_enabled = false,
     .opencv_map_path = NULL,
+    .pipe_output = false,
 };
 
 enum sc_orientation

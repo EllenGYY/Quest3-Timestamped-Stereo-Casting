@@ -11,6 +11,7 @@ extern "C" {
 #include <errno.h>
 
 #include "video_preprocess.h"
+#include "device_time.h"
 
 #include "events.h"
 #include "icon.h"
@@ -29,7 +30,9 @@ extern "C" {
 
 // Forward declaration of save_frame_as_image function
 static void
-save_frame_as_image(const AVFrame *frame, const char *directory, const char *map_path, uint64_t frame_number);
+save_frame_as_image(const AVFrame *frame, const char *directory, uint64_t frame_number, int64_t boot_time_ms);
+
+static void pipe_frame(const AVFrame *frame, int64_t boot_time_ms);
 
 static inline struct sc_size
 get_oriented_size(struct sc_size size, enum sc_orientation orientation) {
@@ -403,6 +406,16 @@ sc_screen_init(struct sc_screen *screen,
     screen->req.fullscreen = params->fullscreen;
     screen->req.start_fps_counter = params->start_fps_counter;
 
+    if (params->save_frames || params->pipe_output || params->show_timestamps) {
+        const char *adb_path = params->adb_path ? params->adb_path : "adb";
+        screen->device_boot_time = get_device_boot_time(params->serial, adb_path);
+        LOGI("Device boot time: %lld", screen->device_boot_time);
+    } else {
+        screen->device_boot_time = 0;
+    }
+    
+    screen->pipe_output = params->pipe_output;
+
     bool ok = sc_frame_buffer_init(&screen->fb);
     if (!ok) {
         return false;
@@ -489,6 +502,13 @@ sc_screen_init(struct sc_screen *screen,
         goto error_destroy_display;
     }
 
+    screen->processed_frame = av_frame_alloc();
+    if (!screen->processed_frame) {
+        LOG_OOM();
+        av_frame_free(&screen->frame);
+        goto error_destroy_display;
+    }
+
     struct sc_input_manager_params im_params = {
         .controller = params->controller,
         .fp = params->fp,
@@ -544,7 +564,7 @@ sc_screen_init(struct sc_screen *screen,
             return false;
         }
     }
-
+    screen->show_timestamps = params->show_timestamps;
     return true;
 
 error_destroy_display:
@@ -607,6 +627,7 @@ sc_screen_destroy(struct sc_screen *screen) {
 #endif
     sc_display_destroy(&screen->display);
     av_frame_free(&screen->frame);
+    av_frame_free(&screen->processed_frame);
     SDL_DestroyWindow(screen->window);
     sc_fps_counter_destroy(&screen->fps_counter);
     sc_frame_buffer_destroy(&screen->fb);
@@ -717,12 +738,10 @@ prepare_for_frame(struct sc_screen *screen, struct sc_size new_frame_size) {
 }
 
 static bool
-sc_screen_apply_frame(struct sc_screen *screen) {
+sc_screen_apply_frame(struct sc_screen *screen, AVFrame *frame) {
     assert(screen->video);
 
     sc_fps_counter_add_rendered_frame(&screen->fps_counter);
-
-    AVFrame *frame = screen->frame;
 
     struct sc_size new_frame_size = {frame->width, frame->height};
     enum sc_display_result res = prepare_for_frame(screen, new_frame_size);
@@ -774,10 +793,28 @@ sc_screen_update_frame(struct sc_screen *screen) {
         }
         sc_frame_buffer_consume(&screen->fb, screen->resume_frame);
 
-        // Save frame if enabled
-        if (screen->save_frames && screen->frame_dir && screen->opencv_enabled && screen->opencv_map_path) {
-            save_frame_as_image(screen->resume_frame, screen->frame_dir, 
-            screen->opencv_map_path, screen->frame_count++);
+        // Create a copy of the frame for processing
+        av_frame_unref(screen->processed_frame);
+        av_frame_ref(screen->processed_frame, screen->resume_frame);
+
+        if ((screen->opencv_enabled && screen->opencv_map_path) || screen->show_timestamps) {
+            if (screen->show_timestamps) {
+                // Get PTS (Presentation TimeStamp) from frame
+                int64_t pts = screen->processed_frame->pts;
+                // Convert PTS from microseconds to milliseconds
+                int64_t pts_ms = pts / 1000;
+                char timestamp_str[64];
+                if (pts == AV_NOPTS_VALUE) {
+                    snprintf(timestamp_str, sizeof(timestamp_str), "%s", "No timestamps");
+                } else {
+                    // Calculate actual timestamp by adding PTS (converted to ms) to boot time
+                    int64_t timestamp_ms = screen->device_boot_time + pts_ms;
+                    snprintf(timestamp_str, sizeof(timestamp_str), "%s", fromTimestamp(timestamp_ms));
+                }
+                apply_video_effects(screen->processed_frame, screen->opencv_map_path, timestamp_str);
+            }else{
+                apply_video_effects(screen->processed_frame, screen->opencv_map_path, NULL);
+            }
         }
 
         return true;
@@ -786,13 +823,46 @@ sc_screen_update_frame(struct sc_screen *screen) {
     av_frame_unref(screen->frame);
     sc_frame_buffer_consume(&screen->fb, screen->frame);
 
-    // Save frame if enabled
-    if (screen->save_frames && screen->frame_dir && screen->opencv_enabled && screen->opencv_map_path){
-        save_frame_as_image(screen->frame, screen->frame_dir, 
-            screen->opencv_map_path, screen->frame_count++);
+    // Create a deep copy instead of just referencing
+    screen->processed_frame->format = screen->frame->format;
+    screen->processed_frame->width = screen->frame->width;
+    screen->processed_frame->height = screen->frame->height;
+    screen->processed_frame->pts = screen->frame->pts;
+    av_frame_get_buffer(screen->processed_frame, 0);
+    av_frame_copy(screen->processed_frame, screen->frame);
+    av_frame_copy_props(screen->processed_frame, screen->frame);
+
+    // Apply video effects if enabled
+    if ((screen->opencv_enabled && screen->opencv_map_path) || screen->show_timestamps) {
+        if (screen->show_timestamps) {
+            // Get PTS (Presentation TimeStamp) from frame
+            int64_t pts = screen->processed_frame->pts;
+            // Convert PTS from microseconds to milliseconds
+            int64_t pts_ms = pts / 1000;
+            char timestamp_str[64];
+            if (pts == AV_NOPTS_VALUE) {
+                snprintf(timestamp_str, sizeof(timestamp_str), "%s", "No timestamps");
+            } else {
+                // Calculate actual timestamp by adding PTS (converted to ms) to boot time
+                int64_t timestamp_ms = screen->device_boot_time + pts_ms;
+                snprintf(timestamp_str, sizeof(timestamp_str), "%s", fromTimestamp(timestamp_ms));
+            }
+            apply_video_effects(screen->processed_frame, screen->opencv_map_path, timestamp_str);
+        }else{
+            apply_video_effects(screen->processed_frame, screen->opencv_map_path, NULL);
+        }
     }
 
-    return sc_screen_apply_frame(screen);
+    if (screen->save_frames && screen->frame_dir){
+        save_frame_as_image(screen->processed_frame, screen->frame_dir, 
+                            screen->frame_count++, screen->device_boot_time);
+    }
+
+    if (screen->pipe_output) {
+        pipe_frame(screen->processed_frame, screen->device_boot_time);
+    }
+
+    return sc_screen_apply_frame(screen, screen->processed_frame);
 }
 
 void
@@ -810,7 +880,7 @@ sc_screen_set_paused(struct sc_screen *screen, bool paused) {
         av_frame_free(&screen->frame);
         screen->frame = screen->resume_frame;
         screen->resume_frame = NULL;
-        sc_screen_apply_frame(screen);
+        sc_screen_apply_frame(screen, screen->frame);
     }
 
     if (!paused) {
@@ -1100,10 +1170,22 @@ sc_screen_hidpi_scale_coords(struct sc_screen *screen, int32_t *x, int32_t *y) {
 
 // Add this function to save frames
 static void
-save_frame_as_image(const AVFrame *frame, const char *directory, const char *map_path, uint64_t frame_number) {
+save_frame_as_image(const AVFrame *frame, const char *directory, uint64_t frame_number, int64_t boot_time_ms) {
     char filename[256];
-    snprintf(filename, sizeof(filename), "%s/frame_%06" PRIu64 ".ppm", 
-             directory, frame_number);
+    // Get PTS (Presentation TimeStamp) from frame
+    int64_t pts = frame->pts;
+    // Convert PTS from microseconds to milliseconds
+    int64_t pts_ms = pts / 1000;
+    if (pts == AV_NOPTS_VALUE) {
+        // If no PTS available, fallback to just frame number
+        snprintf(filename, sizeof(filename), "%s/frame_%06d.ppm", 
+                 directory, (int)frame_number);
+    } else {
+        // Calculate actual timestamp by adding PTS (converted to ms) to boot time
+        int64_t timestamp_ms = boot_time_ms + pts_ms;
+        snprintf(filename, sizeof(filename), "%s/frame_%06d_%lld.ppm", 
+                 directory, (int)frame_number, timestamp_ms);
+    }
 
     FILE *fp = fopen(filename, "wb");
     if (!fp) {
@@ -1131,9 +1213,6 @@ save_frame_as_image(const AVFrame *frame, const char *directory, const char *map
         return;
     }
     av_frame_copy(processed, frame);
-
-    // Apply video effects in-place
-    apply_video_effects(processed, map_path);
 
     // Convert from YUV420P to RGB24
     int rgb_linesize[1] = { 3 * processed->width }; // RGB stride
@@ -1175,3 +1254,95 @@ save_frame_as_image(const AVFrame *frame, const char *directory, const char *map
     av_frame_free(&processed);
     fclose(fp);
 }
+
+// Define frame header structure
+#pragma pack(push, 1)  // Ensure struct is packed without padding
+struct frame_header {
+    uint8_t delimiter[8];  // 8-byte delimiter that's unlikely to appear in YUV data
+    int64_t timestamp_ms;  // 8-byte timestamp
+    int32_t width;        // 4-byte width
+    int32_t height;       // 4-byte height
+    uint32_t frame_size;  // 4-byte frame size
+    uint32_t checksum;    // 4-byte checksum for header validation
+};
+#pragma pack(pop)
+
+// Define a unique delimiter that cannot appear in YUV420P data
+static const uint8_t FRAME_DELIMITER[8] = {
+    0xFF, 0xFF, 0xFF, 0xFF,  // Y max is 235
+    0xFF, 0xFF, 0xFF, 0xFF   // U,V max is 240
+};
+
+// Calculate checksum for header validation
+static uint32_t calculate_header_checksum(const struct frame_header *header) {
+    uint32_t checksum = 0;
+    const uint8_t *data = (const uint8_t *)header;
+    // Skip the checksum field itself in calculation
+    size_t size = sizeof(struct frame_header) - sizeof(uint32_t);
+    
+    for (size_t i = 0; i < size; i++) {
+        checksum = (checksum << 8) ^ data[i];
+    }
+    return checksum;
+}
+
+static void pipe_frame(const AVFrame *frame, int64_t boot_time_ms) {
+    // Calculate timestamp
+    int64_t pts_ms = frame->pts / 1000;
+    int64_t timestamp_ms = boot_time_ms + pts_ms;
+    
+    // Calculate frame size
+    uint32_t frame_size = frame->width * frame->height;          // Y plane
+    frame_size += (frame->width * frame->height) / 4;            // U plane
+    frame_size += (frame->width * frame->height) / 4;            // V plane
+
+    // Prepare header
+    struct frame_header header = {
+        .timestamp_ms = timestamp_ms,
+        .width = frame->width,
+        .height = frame->height,
+        .frame_size = frame_size
+    };
+    memcpy(header.delimiter, FRAME_DELIMITER, sizeof(FRAME_DELIMITER));
+    
+    // Calculate and set checksum
+    header.checksum = calculate_header_checksum(&header);
+
+    // Write header
+    if (fwrite(&header, sizeof(header), 1, stdout) != 1) {
+        LOGE("Failed to write frame header");
+        return;
+    }
+
+    // Write YUV420P frame data plane by plane
+    // Y plane
+    for (int i = 0; i < frame->height; i++) {
+        if (fwrite(frame->data[0] + i * frame->linesize[0], 
+                    frame->width, 1, stdout) != 1) {
+            LOGE("Failed to write Y plane");
+            return;
+        }
+    }
+
+    // U plane
+    for (int i = 0; i < frame->height/2; i++) {
+        if (fwrite(frame->data[1] + i * frame->linesize[1], 
+                    frame->width/2, 1, stdout) != 1) {
+            LOGE("Failed to write U plane");
+            return;
+        }
+    }
+
+    // V plane
+    for (int i = 0; i < frame->height/2; i++) {
+        if (fwrite(frame->data[2] + i * frame->linesize[2], 
+                    frame->width/2, 1, stdout) != 1) {
+            LOGE("Failed to write V plane");
+            return;
+        }
+    }
+
+    fflush(stdout);
+    return;
+}
+

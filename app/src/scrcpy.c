@@ -814,6 +814,10 @@ aoa_complete:
             .frame_dir = options->frame_dir,
             .opencv_enabled = options->opencv_enabled,
             .opencv_map_path = options->opencv_map_path,
+            .serial = options->serial,
+            .pipe_output = options->pipe_output,
+            .show_timestamps = options->show_timestamps,
+            .adb_path = options->adb_path,
         };
 
         if (!sc_screen_init(&s->screen, &screen_params)) {

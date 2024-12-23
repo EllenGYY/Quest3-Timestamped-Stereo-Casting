@@ -106,6 +106,9 @@ enum {
     OPT_SAVE_FRAMES,
     OPT_FRAME_DIR,
     OPT_OPENCV_MAP,
+    OPT_PIPE_OUTPUT,
+    OPT_ADB_PATH,
+    OPT_SHOW_TIMESTAMPS,
 };
 
 struct sc_option {
@@ -971,6 +974,22 @@ static const struct sc_option options[] = {
         .longopt = "opencv-map",
         .argdesc = "path",
         .text = "Path to the NPZ file containing stereo rectification maps",
+    },
+    {
+        .longopt_id = OPT_PIPE_OUTPUT,
+        .longopt = "pipe-output",
+        .text = "Pipe output to a pipe",
+    },
+    {
+        .longopt_id = OPT_ADB_PATH,
+        .longopt = "adb-path",
+        .argdesc = "path",
+        .text = "Path to adb executable",
+    },
+    {
+        .longopt_id = OPT_SHOW_TIMESTAMPS,
+        .longopt = "show-timestamps",
+        .text = "Render timestamps on screen",
     },
 };
 
@@ -2701,6 +2720,15 @@ parse_args_with_getopt(struct scrcpy_cli_args *args, int argc, char *argv[],
                 break;
             case OPT_OPENCV_MAP:
                 opts->opencv_map_path = optarg;
+                break;
+            case OPT_PIPE_OUTPUT:
+                opts->pipe_output = true;
+                break;
+            case OPT_ADB_PATH:
+                opts->adb_path = optarg;
+                break;
+            case OPT_SHOW_TIMESTAMPS:
+                opts->show_timestamps = true;
                 break;
             default:
                 // getopt prints the error message on stderr
