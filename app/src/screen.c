@@ -1,4 +1,8 @@
 #include "screen.h"
+#ifdef _WIN32
+# include <fcntl.h>
+# include <io.h>
+#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -409,7 +413,7 @@ sc_screen_init(struct sc_screen *screen,
     if (params->save_frames || params->pipe_output || params->show_timestamps) {
         const char *adb_path = params->adb_path ? params->adb_path : "adb";
         screen->device_boot_time = get_device_boot_time(params->serial, adb_path);
-        LOGI("Device boot time: %lld", screen->device_boot_time);
+        // LOGI("Device boot time: %lld", screen->device_boot_time);
     } else {
         screen->device_boot_time = 0;
     }
@@ -565,6 +569,10 @@ sc_screen_init(struct sc_screen *screen,
         }
     }
     screen->show_timestamps = params->show_timestamps;
+    #ifdef _WIN32
+        // Set stdout to binary mode on Windows
+        _setmode(_fileno(stdout), _O_BINARY);
+    #endif
     return true;
 
 error_destroy_display:
@@ -1341,8 +1349,8 @@ static void pipe_frame(const AVFrame *frame, int64_t boot_time_ms) {
             return;
         }
     }
-
     fflush(stdout);
+
     return;
 }
 
